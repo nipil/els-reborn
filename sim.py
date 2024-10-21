@@ -55,7 +55,7 @@ CROSS_SCREW_PITCH_NUMERATOR = 4
 CROSS_SCREW_PITCH_DENOMINATOR = 1
 
 @dataclasses.dataclass(order=True)
-class ThreadSpec:
+class Advance:
     _mm_per_rev: float = dataclasses.field(init=False, repr=False)
     mode: str
     designation: str
@@ -93,7 +93,7 @@ METRIC_PITCH_MM_PER_REV = (
 )
 
 METRIC_THREADS = [
-    ThreadSpec('M', f'{p}mm', int(p*100), int(100))
+    Advance('M', f'{p}mm/t', int(p*100), 100)
     for p in METRIC_PITCH_MM_PER_REV
 ]
 
@@ -133,11 +133,76 @@ IMPERIAL_PITCH_THREADS_PER_INCH = (
 )
 
 IMPERIAL_THREADS = [
-    ThreadSpec('I', f'{p}tpi', int(25.4*10), int(p*10))
+    Advance('I', f'{p}tpi', int(25.4*10), int(p*10))
     for p in IMPERIAL_PITCH_THREADS_PER_INCH
 ]
 
-THREADING_MODES = sorted(METRIC_THREADS+IMPERIAL_THREADS)
+THREADING_MODES = sorted(METRIC_THREADS + IMPERIAL_THREADS)
+
+METRIC_FEED_MM_PER_REV = (
+    0.005,
+    0.01,
+    0.015,
+    0.02,
+    0.03,
+    0.04,
+    0.05,
+    0.06,
+    0.08,
+    0.1,
+    0.12,
+    0.15,
+    0.2,
+    0.25,
+    0.3,
+    0.4,
+    0.5,
+    0.6,
+    0.75,
+    1,
+    1.25,
+    1.5,
+    1.75,
+    2
+)
+
+METRIC_FEEDS = [
+    Advance('M', f'{p}mm/t', int(p*1000), 1000)
+    for p in METRIC_FEED_MM_PER_REV
+]
+
+IMPERIAL_FEED_THOU_PER_REV = (
+    0.2,
+    0.5,
+    1,
+    1.5,
+    2,
+    2.5,
+    3,
+    3.5,
+    4,
+    5,
+    6,
+    8,
+    10,
+    12,
+    16,
+    20,
+    25,
+    30,
+    40,
+    50,
+    60,
+    70,
+    80
+)
+
+IMPERIAL_FEEDS = [
+    Advance('I', f'{p}th/r', int(p*10*25.4*10), 10*1000*10)
+    for p in IMPERIAL_FEED_THOU_PER_REV
+]
+
+FEED_MODES = sorted(METRIC_FEEDS + IMPERIAL_FEEDS)
 
 # see https://maker.pro/forums/resources/stepper-motor-max-rpm.54/
 def max_stepper_rpm(steps_per_rev = None, phase_amps = None, phase_res = None, phase_mh = None, phase_volts = None):
@@ -169,8 +234,12 @@ def characterize_stepper_rpm():
 
 def main():
     characterize_stepper_rpm()
-    # for mode in THREADING_MODES:
-    #     print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    print('Threading')
+    for mode in THREADING_MODES:
+        print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    print('Feeding')
+    for mode in FEED_MODES:
+        print(f'{mode._mm_per_rev:0>6.3f}', mode)
 
 if __name__ == '__main__':
     main()
