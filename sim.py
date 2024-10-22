@@ -1,4 +1,5 @@
 import dataclasses
+import fractions
 import math
 
 #############################################################################
@@ -10,37 +11,25 @@ import math
 # of course you should adapt these to your setup !
 
 # spindle encoder
-SPINDLE_GEAR_TOOTH = 56
-SPINDLE_OUTPUT_GEAR_TOOTH = 56
-SPINDLE_OUTPUT_PULLEY_TOOTH = 40
-SPINDLE_ENCODER_INPUT_PULLEY_TOOTH = 40
+SPINDLE_GEAR_DRIVER = 56
+SPINDLE_OUTPUT_GEAR_DRIVEN = 56
+SPINDLE_OUTPUT_PULLEY_DRIVER = 40
+SPINDLE_ENCODER_PULLEY_DRIVEN = 40
 SPINDLE_ENCODER_PULSE_PER_REVOLUTION = 1000
 
-# stepper
+# stepper motor
 STEPPER_STEPS_PER_REV = 200
+STEPPER_PULLEY_DRIVER = 1
+APRON_PULLEY_DRIVEN = 1
+
+# stepper electrical
 STEPPER_PHASE_POWER_SUPPLY_VOLTAGE = 60
 STEPPER_NOMINAL_CURRENT_PER_PHASE_AMPERES = 6
 STEPPER_PHASE_RESISTANCE_OHMS = 0.42
 STEPPER_PHASE_INDUCTANCE_MILLIHENRY = 3.5
 STEPPER_PHASE_INDUCTANCE_TOLERANCE_PERCENT = 0.2
-STEPPER_PULLEY_TOOTH = 1
-APRON_PULLEY_TOOTH = 1
 
-# gearing in apron
-#  the total *multiplied* reduction when engaging the longitudinal feed
-#  (use 1 as numerator form worms and Z as denominator for wheels)
-FEED_BED_GEAR_NUMERATOR = 1 * 40 * 36
-FEED_BED_GEAR_DENOMINATOR = 36 * 56 * 60
-#  the total *multiplied* reduction when engaging the cross feed
-#  (use 1 as numerator form worms and Z as denominator for wheels)
-FEED_CROSS_GEAR_DENOMINATOR = 1 * 40 * 56
-FEED_CROSS_GEAR_NUMERATOR = 36 * 56 * 20
-
-# rack-and-pinion output:
-#    modulus of rack-and-pinion of bed linear motion output
-FEED_BED_RACK_AND_PINION_MODULUS = 2
-#    tooth count for bed output pinion gear (on rack-on-pinion)
-FEED_BED_OUTPUT_PINION_TOOTH_COUNT = 14 
+## Threading mode
 
 # screw outputs :
 #   metric screws example :
@@ -49,10 +38,43 @@ FEED_BED_OUTPUT_PINION_TOOTH_COUNT = 14
 #   imperial screws example:
 #     11.5 TPI pitch = 25.4 mm advance (numerator) per 11.5 (denominator) revolutions
 #     make it integers: 254 mm (numerator) per 115 (denominator) revolutions
+APRON_SHAFT_DRIVER = 1
+LEAD_SCREW_DRIVEN = 1
 LEAD_SCREW_PITCH_NUMERATOR = 3
 LEAD_SCREW_PITCH_DENOMINATOR = 1
+
+## Turning mode
+
+# gearing in apron
+#  the total *multiplied* reduction when engaging the longitudinal feed
+#  (use 1 as numerator form worms and Z as denominator for wheels)
+APRON_BED_GEAR_DRIVER = 1 * 40 * 36
+APRON_BED_GEAR_DRIVEN = 36 * 56 * 60
+APRON_BED_RATIO = fractions.Fraction(APRON_BED_GEAR_DRIVER, APRON_BED_GEAR_DRIVEN)
+# rack-and-pinion output:
+#    modulus of rack-and-pinion of bed linear motion output
+APRON_BED_PINION_MODULUS = 2
+#    tooth count for bed output pinion gear (on rack-on-pinion)
+APRON_BED_PINION_DRIVER = 14 
+
+## Facing mode
+
+#  the total *multiplied* reduction when engaging the cross feed
+#  (use 1 as numerator form worms and Z as denominator for wheels)
+APRON_CROSS_GEAR_DRIVER = 1 * 40 * 56
+APRON_CROSS_GEAR_DRIVEN = 36 * 56 * 20
+APRON_CROSS_RATIO = fractions.Fraction(FEED_CROSS_GEAR_DRIVER, FEED_CROSS_GEAR_DRIVEN)
+
+# screw outputs :
+#   metric screws example :
+#     3.5 mm pitch = 3.5 mm avdance (numerator) per 1 (denominator) revolutions
+#     make it integers: 7 mm (numerator) per 2 (denominator) revolutions
+#   imperial screws example:
+#     11.5 TPI pitch = 25.4 mm advance (numerator) per 11.5 (denominator) revolutions
+#     make it integers: 254 mm (numerator) per 115 (denominator) revolutions
 CROSS_SCREW_PITCH_NUMERATOR = 4
 CROSS_SCREW_PITCH_DENOMINATOR = 1
+
 
 @dataclasses.dataclass(order=True)
 class Advance:
@@ -204,6 +226,79 @@ IMPERIAL_FEEDS = [
 
 FEED_MODES = sorted(METRIC_FEEDS + IMPERIAL_FEEDS)
 
+SPINDLE_RPM = (
+    65,
+    100,
+    115,
+    170,
+    200,
+    300,
+    350,
+    520,
+    600,
+    900,
+    1050,
+    1600
+)
+
+#############################################################################
+# solving for K (a.k.a. how many stepper steps per spindle encoder pulse)
+#############################################################################
+# 
+### Spindle to apron
+# 
+# spindle_revolutions * SPINDLE_GEAR_DRIVER / SPINDLE_OUTPUT_GEAR_DRIVEN 
+# = spindle_output_revolutions
+# 
+# spindle_output_revolutions * SPINDLE_OUTPUT_PULLEY_DRIVER / SPINDLE_ENCODER_PULLEY_DRIVEN
+# = spindle_encoder_revolutions
+#
+# spindle_encoder_revolutions * SPINDLE_ENCODER_PULSE_PER_REVOLUTION
+# = spindle_encoder_pulses
+#
+# spindle_encoder_pulses * K
+# = stepper_motor_steps
+#
+# stepper_motor_steps * STEPPER_PULLEY_DRIVER / APRON_PULLEY_DRIVEN
+# = apron_input_steps
+#
+### Threading mode
+#
+# apron_input_steps * APRON_SHAFT_DRIVER / LEAD_SCREW_DRIVEN
+# = lead_screw_steps
+#
+# lead_screw_steps * LEAD_SCREW_PITCH_NUMERATOR / LEAD_SCREW_PITCH_DENOMINATOR
+# = lead_screw_steps_advance
+#
+# lead_screw_steps_advance / STEPPER_STEPS_PER_REV
+# = lead_screw_advance_per_revolution
+#
+### Facing mode
+#
+# apron_input_steps * APRON_CROSS_GEAR_DRIVER / APRON_CROSS_GEAR_DRIVEN
+# = cross_screw_steps
+#
+# cross_screw_steps * CROSS_SCREW_PITCH_NUMERATOR / CROSS_SCREW_PITCH_DENOMINATOR
+# = cross_screw_steps_advance
+#
+# cross_screw_steps_advance / STEPPER_STEPS_PER_REV
+# = cross_screw_advance_per_revolution
+#
+### Turning mode
+#
+# apron_input_steps * APRON_BED_GEAR_DRIVER / APRON_BED_GEAR_DRIVEN
+# = bed_pinion_steps
+#
+# bed_pinion_steps * APRON_BED_PINION_MODULUS * APRON_BED_PINION_DRIVER * PI
+# = bed_pinion_steps_advance
+#
+# bed_pinion_steps_advance / STEPPER_STEPS_PER_REV
+# = bed_pinion_advance_per_revolution
+
+#############################################################################
+# utilities
+#############################################################################
+
 # see https://maker.pro/forums/resources/stepper-motor-max-rpm.54/
 def max_stepper_rpm(steps_per_rev = None, phase_amps = None, phase_res = None, phase_mh = None, phase_volts = None):
     if steps_per_rev is None:
@@ -234,12 +329,12 @@ def characterize_stepper_rpm():
 
 def main():
     characterize_stepper_rpm()
-    print('Threading')
-    for mode in THREADING_MODES:
-        print(f'{mode._mm_per_rev:0>6.3f}', mode)
-    print('Feeding')
-    for mode in FEED_MODES:
-        print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    # print('Threading')
+    # for mode in THREADING_MODES:
+    #     print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    # print('Feeding')
+    # for mode in FEED_MODES:
+    #     print(f'{mode._mm_per_rev:0>6.3f}', mode)
 
 if __name__ == '__main__':
     main()
