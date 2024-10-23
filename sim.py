@@ -6,6 +6,11 @@ import math
 # constants
 #############################################################################
 
+# Fractional definition for PI, to avoir floating point calculations
+# approx. error : 0.8µm over 10 meters, for a 14-tooth mod-2 rack & pinion
+PI_NUMERATOR = 355
+PI_DENOMINATOR = 113
+
 # defaults value taken from my HBM 330x600 lathe setup :
 # https://www.usinages.com/threads/tour-hbm-330x600-cq6133-de-nipil.165426/
 # of course you should adapt these to your setup !
@@ -50,7 +55,6 @@ LEAD_SCREW_PITCH_DENOMINATOR = 1
 #  (use 1 as numerator form worms and Z as denominator for wheels)
 APRON_BED_GEAR_DRIVER = 1 * 40 * 36
 APRON_BED_GEAR_DRIVEN = 36 * 56 * 60
-APRON_BED_RATIO = fractions.Fraction(APRON_BED_GEAR_DRIVER, APRON_BED_GEAR_DRIVEN)
 # rack-and-pinion output:
 #    modulus of rack-and-pinion of bed linear motion output
 APRON_BED_PINION_MODULUS = 2
@@ -63,7 +67,6 @@ APRON_BED_PINION_DRIVER = 14
 #  (use 1 as numerator form worms and Z as denominator for wheels)
 APRON_CROSS_GEAR_DRIVER = 1 * 40 * 56
 APRON_CROSS_GEAR_DRIVEN = 36 * 56 * 20
-APRON_CROSS_RATIO = fractions.Fraction(FEED_CROSS_GEAR_DRIVER, FEED_CROSS_GEAR_DRIVEN)
 
 # screw outputs :
 #   metric screws example :
@@ -81,11 +84,11 @@ class Advance:
     _mm_per_rev: float = dataclasses.field(init=False, repr=False)
     mode: str
     designation: str
-    advance_millimeters: int
-    advance_revolutions: int
+    advance_numerator_millimeters: int
+    advance_denominator_revolutions: int
 
     def __post_init__(self):
-        self._mm_per_rev = self.advance_millimeters / self.advance_revolutions
+        self._mm_per_rev = self.advance_numerator_millimeters / self.advance_denominator_revolutions
 
 METRIC_PITCH_MM_PER_REV = (
     0.2,
@@ -247,7 +250,7 @@ SPINDLE_RPM = (
 # 
 ### Spindle to apron
 # 
-# spindle_revolutions * SPINDLE_GEAR_DRIVER / SPINDLE_OUTPUT_GEAR_DRIVEN 
+# spindle_revolutions * SPINDLE_GEAR_DRIVER / SPINDLE_OUTPUT_GEAR_DRIVEN
 # = spindle_output_revolutions
 # 
 # spindle_output_revolutions * SPINDLE_OUTPUT_PULLEY_DRIVER / SPINDLE_ENCODER_PULLEY_DRIVEN
@@ -259,41 +262,148 @@ SPINDLE_RPM = (
 # spindle_encoder_pulses * K
 # = stepper_motor_steps
 #
-# stepper_motor_steps * STEPPER_PULLEY_DRIVER / APRON_PULLEY_DRIVEN
-# = apron_input_steps
+# stepper_motor_steps / STEPPER_STEPS_PER_REV
+# = stepper_motor_revolutions
+#
+# stepper_motor_revolutions * STEPPER_PULLEY_DRIVER / APRON_PULLEY_DRIVEN
+# = apron_input_revolutions
 #
 ### Threading mode
 #
-# apron_input_steps * APRON_SHAFT_DRIVER / LEAD_SCREW_DRIVEN
-# = lead_screw_steps
+# apron_input_revolutions * APRON_SHAFT_DRIVER / LEAD_SCREW_DRIVEN
+# = lead_screw_revolutions
 #
-# lead_screw_steps * LEAD_SCREW_PITCH_NUMERATOR / LEAD_SCREW_PITCH_DENOMINATOR
-# = lead_screw_steps_advance
-#
-# lead_screw_steps_advance / STEPPER_STEPS_PER_REV
+# lead_screw_revolutions * LEAD_SCREW_PITCH_NUMERATOR / LEAD_SCREW_PITCH_DENOMINATOR
 # = lead_screw_advance_per_revolution
 #
 ### Facing mode
 #
-# apron_input_steps * APRON_CROSS_GEAR_DRIVER / APRON_CROSS_GEAR_DRIVEN
-# = cross_screw_steps
+# apron_input_revolutions * APRON_CROSS_GEAR_DRIVER / APRON_CROSS_GEAR_DRIVEN
+# = cross_screw_revolutions
 #
-# cross_screw_steps * CROSS_SCREW_PITCH_NUMERATOR / CROSS_SCREW_PITCH_DENOMINATOR
-# = cross_screw_steps_advance
-#
-# cross_screw_steps_advance / STEPPER_STEPS_PER_REV
+# cross_screw_revolutions * CROSS_SCREW_PITCH_NUMERATOR / CROSS_SCREW_PITCH_DENOMINATOR
 # = cross_screw_advance_per_revolution
 #
 ### Turning mode
 #
-# apron_input_steps * APRON_BED_GEAR_DRIVER / APRON_BED_GEAR_DRIVEN
-# = bed_pinion_steps
+# apron_input_revolutions * APRON_BED_GEAR_DRIVER / APRON_BED_GEAR_DRIVEN
+# = bed_pinion_revolutions
 #
-# bed_pinion_steps * APRON_BED_PINION_MODULUS * APRON_BED_PINION_DRIVER * PI
-# = bed_pinion_steps_advance
-#
-# bed_pinion_steps_advance / STEPPER_STEPS_PER_REV
+# bed_pinion_revolutions * APRON_BED_PINION_MODULUS * APRON_BED_PINION_DRIVER * PI
 # = bed_pinion_advance_per_revolution
+
+### Solutions for K (K unit is stepper_steps per encoder_pulse)
+#
+# K_threading = lead_screw_advance_per_revolution * (
+#   APRON_PULLEY_DRIVEN *
+#   LEAD_SCREW_DRIVEN *
+#   LEAD_SCREW_PITCH_DENOMINATOR *
+#   SPINDLE_ENCODER_PULLEY_DRIVEN *
+#   SPINDLE_OUTPUT_GEAR_DRIVEN *
+#   STEPPER_STEPS_PER_REV
+# ) / (
+#   APRON_SHAFT_DRIVER *
+#   LEAD_SCREW_PITCH_NUMERATOR *
+#   SPINDLE_ENCODER_PULSE_PER_REVOLUTION *
+#   SPINDLE_GEAR_DRIVER *
+#   SPINDLE_OUTPUT_PULLEY_DRIVER *
+#   STEPPER_PULLEY_DRIVER *
+#   spindle_revolutions
+# )
+def K_threading(lead_screw_advance_per_revolution: Advance):
+    numerator = lead_screw_advance_per_revolution.advance_numerator_millimeters * (
+        APRON_PULLEY_DRIVEN *
+        LEAD_SCREW_DRIVEN *
+        LEAD_SCREW_PITCH_DENOMINATOR *
+        SPINDLE_ENCODER_PULLEY_DRIVEN *
+        SPINDLE_OUTPUT_GEAR_DRIVEN *
+        STEPPER_STEPS_PER_REV
+    )
+    denominator = lead_screw_advance_per_revolution.advance_denominator_revolutions* (
+        APRON_SHAFT_DRIVER *
+        LEAD_SCREW_PITCH_NUMERATOR *
+        SPINDLE_ENCODER_PULSE_PER_REVOLUTION *
+        SPINDLE_GEAR_DRIVER *
+        SPINDLE_OUTPUT_PULLEY_DRIVER *
+        STEPPER_PULLEY_DRIVER
+        # per 1 spindle revolution
+    )
+    return numerator, denominator, fractions.Fraction(numerator, denominator)
+
+# K_facing = cross_screw_advance_per_revolution * (
+#   APRON_CROSS_GEAR_DRIVEN *
+#   APRON_PULLEY_DRIVEN *
+#   CROSS_SCREW_PITCH_DENOMINATOR *
+#   SPINDLE_ENCODER_PULLEY_DRIVEN *
+#   SPINDLE_OUTPUT_GEAR_DRIVEN *
+#   STEPPER_STEPS_PER_REV
+# ) / (
+#   APRON_CROSS_GEAR_DRIVER *
+#   CROSS_SCREW_PITCH_NUMERATOR *
+#   SPINDLE_ENCODER_PULSE_PER_REVOLUTION *
+#   SPINDLE_GEAR_DRIVER *
+#   SPINDLE_OUTPUT_PULLEY_DRIVER *
+#   STEPPER_PULLEY_DRIVER *
+#   spindle_revolutions
+# )
+def K_facing(cross_screw_advance_per_revolution: Advance):
+    numerator = cross_screw_advance_per_revolution.advance_numerator_millimeters * (
+        APRON_CROSS_GEAR_DRIVEN *
+        APRON_PULLEY_DRIVEN *
+        CROSS_SCREW_PITCH_DENOMINATOR *
+        SPINDLE_ENCODER_PULLEY_DRIVEN *
+        SPINDLE_OUTPUT_GEAR_DRIVEN *
+        STEPPER_STEPS_PER_REV
+    )
+    denominator = cross_screw_advance_per_revolution.advance_denominator_revolutions * (
+        APRON_CROSS_GEAR_DRIVER *
+        CROSS_SCREW_PITCH_NUMERATOR *
+        SPINDLE_ENCODER_PULSE_PER_REVOLUTION *
+        SPINDLE_GEAR_DRIVER *
+        SPINDLE_OUTPUT_PULLEY_DRIVER *
+        STEPPER_PULLEY_DRIVER
+        # per 1 spindle revolution
+    )
+    return numerator, denominator, fractions.Fraction(numerator, denominator)
+
+# K_turning = bed_pinion_advance_per_revolution * (
+#   APRON_BED_GEAR_DRIVEN *
+#   APRON_PULLEY_DRIVEN *
+#   SPINDLE_ENCODER_PULLEY_DRIVEN *
+#   SPINDLE_OUTPUT_GEAR_DRIVEN *
+#   STEPPER_STEPS_PER_REV
+# ) / (
+#   APRON_BED_GEAR_DRIVER *
+#   APRON_BED_PINION_DRIVER *
+#   APRON_BED_PINION_MODULUS *
+#   PI *
+#   SPINDLE_ENCODER_PULSE_PER_REVOLUTION *
+#   SPINDLE_GEAR_DRIVER *
+#   SPINDLE_OUTPUT_PULLEY_DRIVER *
+#   STEPPER_PULLEY_DRIVER *
+#   spindle_revolutions
+# )
+def K_turning(bed_pinion_advance_per_revolution: Advance):
+    numerator = bed_pinion_advance_per_revolution.advance_numerator_millimeters * (
+        APRON_BED_GEAR_DRIVEN *
+        APRON_PULLEY_DRIVEN *
+        SPINDLE_ENCODER_PULLEY_DRIVEN *
+        SPINDLE_OUTPUT_GEAR_DRIVEN *
+        STEPPER_STEPS_PER_REV *
+        PI_DENOMINATOR
+    )
+    denominator = bed_pinion_advance_per_revolution.advance_denominator_revolutions * (
+        PI_NUMERATOR *
+        APRON_BED_GEAR_DRIVER *
+        APRON_BED_PINION_DRIVER *
+        APRON_BED_PINION_MODULUS *
+        SPINDLE_ENCODER_PULSE_PER_REVOLUTION *
+        SPINDLE_GEAR_DRIVER *
+        SPINDLE_OUTPUT_PULLEY_DRIVER *
+        STEPPER_PULLEY_DRIVER
+        # per 1 spindle revolution
+    )
+    return numerator, denominator, fractions.Fraction(numerator, denominator)
 
 #############################################################################
 # utilities
@@ -329,12 +439,12 @@ def characterize_stepper_rpm():
 
 def main():
     characterize_stepper_rpm()
-    # print('Threading')
-    # for mode in THREADING_MODES:
-    #     print(f'{mode._mm_per_rev:0>6.3f}', mode)
-    # print('Feeding')
-    # for mode in FEED_MODES:
-    #     print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    print('Threading')
+    for mode in THREADING_MODES:
+        print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    print('Feeding')
+    for mode in FEED_MODES:
+        print(f'{mode._mm_per_rev:0>6.3f}', mode)
 
 if __name__ == '__main__':
     main()
