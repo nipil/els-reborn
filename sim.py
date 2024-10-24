@@ -439,12 +439,39 @@ def characterize_stepper_rpm():
 
 def main():
     characterize_stepper_rpm()
+    max_k_n = -1
+    max_k_d = -1
     print('Threading')
     for mode in THREADING_MODES:
         print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    print('K_threading')
+    for mode in THREADING_MODES:
+        k_n, k_d, k_f = K_threading(mode)
+        if k_n > max_k_n:
+            max_k_n = k_n
+        if k_d > max_k_d:
+            max_k_d = k_d
+        print(mode.designation, k_n, k_d, k_f, k_n/k_d)
     print('Feeding')
     for mode in FEED_MODES:
         print(f'{mode._mm_per_rev:0>6.3f}', mode)
+    print('K_facing')
+    for mode in FEED_MODES:
+        k_n, k_d, k_f = K_facing(mode)
+        if k_n > max_k_n:
+            max_k_n = k_n
+        if k_d > max_k_d:
+            max_k_d = k_d
+        print(mode.designation, k_n, k_d, k_f, k_n/k_d)
+    print('K_turning')
+    for mode in FEED_MODES:
+        k_n, k_d, k_f = K_turning(mode)
+        if k_n > max_k_n:
+            max_k_n = k_n
+        if k_d > max_k_d:
+            max_k_d = k_d
+        print(mode.designation, k_n, k_d, k_f, k_n/k_d)
+    print("Global max k n d", max_k_n, max_k_d)
 
 if __name__ == '__main__':
     main()
