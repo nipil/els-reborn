@@ -410,9 +410,13 @@ def K_turning(bed_pinion_advance_per_revolution: Advance):
 #############################################################################
 
 # see https://maker.pro/forums/resources/stepper-motor-max-rpm.54/
-def max_stepper_rpm(steps_per_rev = None, phase_amps = None, phase_res = None, phase_mh = None, phase_volts = None):
+
+def get_stepper_max_rpm(time_for_nominal_current, steps_per_rev = None):
     if steps_per_rev is None:
         steps_per_rev = STEPPER_STEPS_PER_REV
+    return (60 / steps_per_rev) / time_for_nominal_current
+
+def get_stepper_time_for_nominal_current(phase_amps = None, phase_res = None, phase_mh = None, phase_volts = None):
     if phase_amps is None:
         phase_amps = STEPPER_NOMINAL_CURRENT_PER_PHASE_AMPERES
     if phase_res is None:
@@ -421,24 +425,15 @@ def max_stepper_rpm(steps_per_rev = None, phase_amps = None, phase_res = None, p
         phase_mh = STEPPER_PHASE_INDUCTANCE_MILLIHENRY
     if phase_volts is None:
         phase_volts = STEPPER_PHASE_POWER_SUPPLY_VOLTAGE
-    return (60 / steps_per_rev) / (-((phase_mh / 1000) / phase_res) * math.log(1 - phase_amps * phase_res / phase_volts))
+    return -((phase_mh / 1000) / phase_res) * math.log(1 - phase_amps * phase_res / phase_volts)
 
 def characterize_stepper_rpm():
-    stepper_max_rpm = max_stepper_rpm()
+    stepper_time_for_nominal_current = get_stepper_time_for_nominal_current()
+    print(f'{stepper_time_for_nominal_current=}')
+    stepper_max_rpm = get_stepper_max_rpm(stepper_time_for_nominal_current)
     print(f'{stepper_max_rpm=}')
-    reducing_steps_increases_rpm = max_stepper_rpm(steps_per_rev = STEPPER_STEPS_PER_REV * 0.99) > stepper_max_rpm
-    print(f'{reducing_steps_increases_rpm=}')
-    reducing_amps_increases_rpm = max_stepper_rpm(phase_amps=STEPPER_NOMINAL_CURRENT_PER_PHASE_AMPERES * 0.99) > stepper_max_rpm
-    print(f'{reducing_amps_increases_rpm=}')
-    reducing_res_increases_rpm = max_stepper_rpm(phase_res=STEPPER_PHASE_RESISTANCE_OHMS * 0.99) > stepper_max_rpm
-    print(f'{reducing_res_increases_rpm=}')
-    reducing_mh_increases_rpm = max_stepper_rpm(phase_mh=STEPPER_PHASE_INDUCTANCE_MILLIHENRY * 0.99) > stepper_max_rpm
-    print(f'{reducing_mh_increases_rpm=}')
-    increasing_volts_increases_rpm = max_stepper_rpm(phase_volts=STEPPER_PHASE_POWER_SUPPLY_VOLTAGE * 1.01) > stepper_max_rpm
-    print(f'{increasing_volts_increases_rpm=}')
 
-def main():
-    characterize_stepper_rpm()
+def characterize_pitches():
     max_k_n = -1
     max_k_d = -1
     print('Threading')
@@ -451,7 +446,7 @@ def main():
             max_k_n = k_n
         if k_d > max_k_d:
             max_k_d = k_d
-        print(mode.designation, k_n, k_d, k_f, k_n/k_d)
+        print(f'{mode.designation} {k_n=} {k_d=} {k_f=}, {k_n/k_d=}')
     print('Feeding')
     for mode in FEED_MODES:
         print(f'{mode._mm_per_rev:0>6.3f}', mode)
@@ -462,7 +457,7 @@ def main():
             max_k_n = k_n
         if k_d > max_k_d:
             max_k_d = k_d
-        print(mode.designation, k_n, k_d, k_f, k_n/k_d)
+        print(f'{mode.designation} {k_n=} {k_d=} {k_f=}, {k_n/k_d=}')
     print('K_turning')
     for mode in FEED_MODES:
         k_n, k_d, k_f = K_turning(mode)
@@ -470,8 +465,12 @@ def main():
             max_k_n = k_n
         if k_d > max_k_d:
             max_k_d = k_d
-        print(mode.designation, k_n, k_d, k_f, k_n/k_d)
-    print("Global max k n d", max_k_n, max_k_d)
+        print(f'{mode.designation} {k_n=} {k_d=} {k_f=}, {k_n/k_d=}')
+    print(f'Global {max_k_n=} {max_k_d=}')
+
+def main():
+    characterize_stepper_rpm()
+    characterize_pitches()
 
 if __name__ == '__main__':
     main()
